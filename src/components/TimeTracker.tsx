@@ -69,24 +69,44 @@ export const TimeTracker: React.FC = () => {
   const [elapsedTime, setElapsedTime] = useState<number>(0)
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout
+    const loadInitialData = async () => {
+      const response = await fetch('/api/timeEntries');
+      const data = await response.json();
+      setEntries(data);
+
+      // Generate summaries
+      const categories = new Set(data.map((entry: TimeEntry) => entry.category));
+      for (const category of categories) {
+        const categoryEntries = data.filter((e: TimeEntry) => e.category === category);
+        const summary = await apiService.getCategorySummary(category, categoryEntries);
+        setSummaries(prev => ({
+          ...prev,
+          [category]: summary.response
+        }));
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
 
     if (activeEntry) {
       intervalId = setInterval(() => {
-        const now = new Date()
-        const elapsed = now.getTime() - activeEntry.startTime.getTime()
-        setElapsedTime(elapsed)
-      }, 1000)
+        const now = new Date();
+        setElapsedTime(now.getTime() - activeEntry.startTime.getTime());
+      }, 1000);
     } else {
-      setElapsedTime(0)
+      setElapsedTime(0);
     }
 
     return () => {
       if (intervalId) {
-        clearInterval(intervalId)
+        clearInterval(intervalId);
       }
-    }
-  }, [activeEntry])
+    };
+  }, [activeEntry]);
 
   const getCurrentCategory = () => {
     return selectedCategory === OTHER_CATEGORY ? customCategory : selectedCategory
@@ -111,26 +131,35 @@ export const TimeTracker: React.FC = () => {
   }
 
   const stopTracking = async () => {
-    if (!activeEntry) return
+    if (!activeEntry) return;
 
-    const endTime = new Date()
-    const duration = endTime.getTime() - activeEntry.startTime.getTime()
-    const completedEntry = { ...activeEntry, endTime, duration }
+    const endTime = new Date();
+    const duration = endTime.getTime() - activeEntry.startTime.getTime();
+    const completedEntry = { ...activeEntry, endTime, duration };
 
-    await apiService.saveTimeEntry(completedEntry)
-    setEntries([...entries, completedEntry])
-    setActiveEntry(null)
+    // Save to MongoDB
+    const response = await fetch('/api/timeEntries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(completedEntry)
+    });
 
-    const categoryEntries = entries.filter(e => e.category === completedEntry.category)
-    const summary = await apiService.getCategorySummary(
-        completedEntry.category,
-        [...categoryEntries, completedEntry]
-    )
-    setSummaries(prev => ({
-      ...prev,
-      [completedEntry.category]: summary.response
-    }))
-  }
+    if (response.ok) {
+      setEntries(prev => [...prev, completedEntry]);
+      setActiveEntry(null);
+
+      // Update summaries
+      const categoryEntries = entries.filter(e => e.category === completedEntry.category);
+      const summary = await apiService.getCategorySummary(
+          completedEntry.category,
+          [...categoryEntries, completedEntry]
+      );
+      setSummaries(prev => ({
+        ...prev,
+        [completedEntry.category]: summary.response
+      }));
+    }
+  };
 
   const getCategorySummaries = (): CategorySummary[] => {
     const summaryMap = new Map<string, CategorySummary>()

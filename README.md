@@ -132,3 +132,6 @@ EOL
 
 # Create components directory and TimeTracker component
 mkdir -p src/components
+
+# To do 
+[] to save the data into Db so loaded when page refresh
